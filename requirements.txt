@@ -1,0 +1,30 @@
+# Core libraries
+numpy          # Numerical computations
+pandas         # Data manipulation and analysis
+matplotlib     # Data visualization
+seaborn        # Statistical data visualization
+scikit-learn   # Machine learning algorithms
+scipy          # Scientific computing
+jupyterlab     # Jupyter notebooks and IDE
+notebook       # Classic Jupyter notebook
+statsmodels    # Statistical modeling
+tqdm           # Progress bars
+
+# Deep Learning and PyTorch ecosystem
+torch           # PyTorch for deep learning
+torchvision     # Computer vision utilities for PyTorch
+torchtext       # NLP utilities for PyTorch
+torchaudio      # Audio processing utilities for PyTorch
+torch-geometric # Graph Neural Networks with PyTorch
+torch-sparse    # Sparse tensor utilities for PyTorch Geometric
+torch-scatter   # Scatter operations for PyTorch Geometric
+torch-cluster   # Clustering operations for PyTorch Geometric
+torch-spline-conv # Spline-based convolutions for PyTorch Geometric
+
+# Gradient boosting and other tools
+xgboost         # Gradient boosting for machine learning
+lightgbm        # Light Gradient Boosting Machine
+
+# Visualization
+plotly          # Interactive visualization
+dash            # Web-based dashboards
