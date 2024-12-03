@@ -1,0 +1,54 @@
+defaults:
+  - hydra/job_logging: disabled
+  - hydra/output_subdir: null
+hydra:
+  output_subdir: null
+  run:
+    dir: logs/hydra
+main:
+  experiment_name_prefix: exp_4_tpp_odd
+  seed: 1
+  num_workers: 6
+  parallel: False
+  gpus_to_use: 0,1
+  trains: False
+  K: 30
+  version: 'V1_1.1'
+  save: True
+  load_model: False
+  run_test_only: False
+  full_dataset: False
+  metric : "MSE"
+  paths:
+    logs: 'logs/'
+    data_path: 'data/ready_data/'
+    versions_dir: 'models'
+    preprocessing_path: '/data/preprocessing'
+train:
+  num_epochs: 50
+  grad_clip: 0.3
+  dropout: 0.2
+  num_hid: 20
+  batch_size: 1024
+  save_model: True
+  train_name: "data_odd"
+  test_name: "data_even"
+  hidden_size: 15
+  num_layers: 2
+  p_dropout: 0.5
+  bias: True
+  input_size: 19
+  print_plots: False
+  print_plot_every_epochs: 20
+  bidirectional: False
+  lr:
+    lr_value: 0.001
+    lr_gamma: 0.1
+    lr_step_size: 30
+
+
+
+
+
+
+
