@@ -84,7 +84,7 @@ def ordered_node_greedy_best_first(node, h, node_tiebreaker):
     return (f, h, node_tiebreaker, node)
 
 
-def greedy_best_first_search(task, heuristic, use_relaxed_plan=False):
+def greedy_best_first_search(task, heuristic, output_path, use_relaxed_plan=False):
     """
     Searches for a plan in the given task using greedy best first search.
 
@@ -93,7 +93,7 @@ def greedy_best_first_search(task, heuristic, use_relaxed_plan=False):
                      from a search node to reach the goal.
     """
     return astar_search(
-        task, heuristic, ordered_node_greedy_best_first, use_relaxed_plan
+        task, heuristic, output_path, ordered_node_greedy_best_first, use_relaxed_plan
     )
 
 
@@ -112,7 +112,7 @@ def weighted_astar_search(task, heuristic, weight=5, use_relaxed_plan=False):
 
 
 def astar_search(
-    task, heuristic, make_open_entry=ordered_node_astar, use_relaxed_plan=False
+    task, heuristic, output_path, make_open_entry=ordered_node_astar, use_relaxed_plan=False
 ):
     """
     Searches for a plan in the given task using A* search.
@@ -144,7 +144,7 @@ def astar_search(
     cnt = 1
     node_dict = {}
     node_values = {}
-    output_name = sys.argv[-1]
+    output_name = output_path
     h0 = 0
     H_min = None
     last_H_min_update= 0
@@ -157,8 +157,8 @@ def astar_search(
             logging.debug("Found new best h: %d after %d expansions" % (besth, counter))
 
         pop_state = pop_node.state
-        #if node_dict.get(pop_node.state) == None: 
-        node_dict[pop_node.state] = ((cnt,len(task.get_successor_states(pop_state)))) # dict from state -> (node#, BF) 
+        #if node_dict.get(pop_node.state) == None:
+        node_dict[pop_node.state] = ((cnt,len(task.get_successor_states(pop_state)))) # dict from state -> (node#, BF)
         if cnt == 1: # if i am root
             father_n = None
         else: # if i am not root
@@ -196,19 +196,23 @@ def astar_search(
         if (f_max == None or f_max < f):
             f_max = f
         #resutls.append((cnt, BF, f, h, f-h, father_n, father_BF, father_f, father_h, father_g, grandfather_n, grandfather_BF,grandfather_f, grandfather_h, grandfather_g, h0, H_min, cnt - last_H_min_update, f_max))
+        # resutls.append((
+        #     matrix[0][0], matrix[0][1], matrix[0][2], matrix[0][3], matrix[0][4],
+        #     matrix[1][0], matrix[1][1], matrix[1][2], matrix[1][3], matrix[1][4],
+        #     matrix[2][0], matrix[2][1], matrix[2][2], matrix[2][3], matrix[2][4],
+        #     matrix[3][0], matrix[3][1], matrix[3][2], matrix[3][3], matrix[3][4],
+        #     matrix[4][0], matrix[4][1], matrix[4][2], matrix[4][3], matrix[4][4],
+        #     matrix[5][0], matrix[5][1], matrix[5][2], matrix[5][3], matrix[5][4],
+        #     matrix[6][0], matrix[6][1], matrix[6][2], matrix[6][3], matrix[6][4],
+        #     matrix[7][0], matrix[7][1], matrix[7][2], matrix[7][3], matrix[7][4],
+        #     matrix[8][0], matrix[8][1], matrix[8][2], matrix[8][3], matrix[8][4],
+        #     matrix[9][0], matrix[9][1], matrix[9][2], matrix[9][3], matrix[9][4],
+        #     h0, H_min, cnt - last_H_min_update, f_max
+        # ))
         resutls.append((
             matrix[0][0], matrix[0][1], matrix[0][2], matrix[0][3], matrix[0][4],
-            matrix[1][0], matrix[1][1], matrix[1][2], matrix[1][3], matrix[1][4], 
-            matrix[2][0], matrix[2][1], matrix[2][2], matrix[2][3], matrix[2][4], 
-            matrix[3][0], matrix[3][1], matrix[3][2], matrix[3][3], matrix[3][4], 
-            matrix[4][0], matrix[4][1], matrix[4][2], matrix[4][3], matrix[4][4], 
-            matrix[5][0], matrix[5][1], matrix[5][2], matrix[5][3], matrix[5][4], 
-            matrix[6][0], matrix[6][1], matrix[6][2], matrix[6][3], matrix[6][4], 
-            matrix[7][0], matrix[7][1], matrix[7][2], matrix[7][3], matrix[7][4], 
-            matrix[8][0], matrix[8][1], matrix[8][2], matrix[8][3], matrix[8][4], 
-            matrix[9][0], matrix[9][1], matrix[9][2], matrix[9][3], matrix[9][4],
-            h0, H_min, cnt - last_H_min_update, f_max
-        ))  
+            matrix[1][0], h0, H_min, cnt - last_H_min_update, f_max
+        ))
 
         # Only expand the node if its associated cost (g value) is the lowest
         # cost known for this state. Otherwise we already found a cheaper
@@ -217,21 +221,22 @@ def astar_search(
             expansions += 1
 
             if task.goal_reached(pop_state):
-                with open(output_name+'.csv', 'w', newline='') as myfile:
+                with open(output_name, 'w', newline='') as myfile:
                     wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
-                    temp = [
-                        "level_1#", "level_1_F", "level_1_H", "level_1_G", "level_1_BF", 
-                        "level_2#", "level_2_F", "level_2_H", "level_2_G", "level_2_BF", 
-                        "level_3#", "level_3_F", "level_3_H", "level_3_G", "level_3_BF", 
-                        "level_4#", "level_4_F", "level_4_H", "level_4_G", "level_4_BF", 
-                        "level_5#", "level_5_F", "level_5_H", "level_5_G", "level_5_BF", 
-                        "level_6#", "level_6_F", "level_6_H", "level_6_G", "level_6_BF", 
-                        "level_7#", "level_7_F", "level_7_H", "level_7_G", "level_7_BF", 
-                        "level_8#", "level_8_F", "level_8_H", "level_8_G", "level_8_BF", 
-                        "level_9#", "level_9_F", "level_9_H", "level_9_G", "level_9_BF", 
-                        "level_10#", "level_10_F", "level_10_H", "level_10_G", "level_10_BF", 
-                        "H0", "H_min", "last_H_min_update", "f_max","node_max"
-                            ]
+                    # temp = [
+                    #     "level_1#", "level_1_F", "level_1_H", "level_1_G", "level_1_BF",
+                    #     "level_2#", "level_2_F", "level_2_H", "level_2_G", "level_2_BF",
+                    #     "level_3#", "level_3_F", "level_3_H", "level_3_G", "level_3_BF",
+                    #     "level_4#", "level_4_F", "level_4_H", "level_4_G", "level_4_BF",
+                    #     "level_5#", "level_5_F", "level_5_H", "level_5_G", "level_5_BF",
+                    #     "level_6#", "level_6_F", "level_6_H", "level_6_G", "level_6_BF",
+                    #     "level_7#", "level_7_F", "level_7_H", "level_7_G", "level_7_BF",
+                    #     "level_8#", "level_8_F", "level_8_H", "level_8_G", "level_8_BF",
+                    #     "level_9#", "level_9_F", "level_9_H", "level_9_G", "level_9_BF",
+                    #     "level_10#", "level_10_F", "level_10_H", "level_10_G", "level_10_BF",
+                    #     "H0", "H_min", "last_H_min_update", "f_max","node_max"
+                    #         ]
+                    temp = ["serial", "f", "h", "g", "BF", "father_serial", "h0", "H_min", "last_H_min_update", "f_max", "node_max"]
                     wr.writerow(temp)
                     for state in resutls:
                         new_state = state + (cnt,)
