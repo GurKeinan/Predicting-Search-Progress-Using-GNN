@@ -18,6 +18,9 @@ from get_params_for_run import get_all_dirs_in_dir, get_all_domain_problem_pairs
 SEARCH_ALGORITHMS_LIST = ['astar', 'gbf']
 HEURISTICS_LIST = ['lmcut', 'hff']
 
+# Timeout duration in seconds (12 hours)
+TASK_TIMEOUT = 12 * 60 * 60
+
 def setup_logger():
     # Create logs directory if it doesn't exist
     logs_dir = Path(__file__).resolve().parent.parent / "logs"
@@ -121,13 +124,15 @@ def main():
         for future in as_completed(future_to_params):
             params = future_to_params[future]
             try:
-                result = future.result()
+                result = future.result(timeout=TASK_TIMEOUT)
                 if result:
                     logger.info(f"Task completed successfully: {params}")
                 else:
                     logger.warning(f"Task completed with no result: {params}")
             except Exception as exc:
                 logger.error(f"Task failed: {params} with exception {exc}", exc_info=True)
+            except TimeoutError:
+                logger.error(f"Task timed out after {TASK_TIMEOUT} seconds: {params}")
 
     logger.info("All tasks have completed.")
 
