@@ -4,7 +4,7 @@ import torch
 from torch_geometric.data import Data, Dataset, DataLoader
 from collections import deque, defaultdict
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from tqdm.auto import tqdm
 from pathlib import Path
 import pickle
@@ -12,10 +12,8 @@ import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 import os
 
-def get_csv_paths(csv_dir) -> list:
-    return list(csv_dir.glob('*.csv'))
-
 def process_single_node(args):
+    # Previous process_single_node implementation remains the same
     csv_path, center_node_serial, k_hops, max_serial = args
     try:
         df = pd.read_csv(csv_path)
@@ -114,19 +112,45 @@ class NodeParallelSearchGraphDataset(Dataset):
 
         self.data_list = self._process_files()
 
+    def save(self, path: str):
+        """Save the dataset to disk"""
+        save_dict = {
+            'data_list': self.data_list,
+            'csv_paths': self.csv_paths,
+            'k_hops': self.k_hops,
+            'split': self.split,
+            'train_ratio': self.train_ratio
+        }
+        with open(path, 'wb') as f:
+            pickle.dump(save_dict, f)
+
+    @classmethod
+    def load(cls, path: str):
+        """Load a dataset from disk"""
+        with open(path, 'rb') as f:
+            save_dict = pickle.load(f)
+
+        dataset = cls(
+            csv_paths=save_dict['csv_paths'],
+            k_hops=save_dict['k_hops'],
+            split=save_dict['split'],
+            train_ratio=save_dict['train_ratio']
+        )
+        dataset.data_list = save_dict['data_list']
+        return dataset
+
     def _process_csv_file(self, csv_path: str) -> List[Data]:
+        # Previous _process_csv_file implementation remains the same
         graphs = []
         df = pd.read_csv(csv_path)
         all_serials = df['serial'].values
         n_nodes = len(all_serials)
         max_serial = df['serial'].max()
 
-        # Sample nodes
         n_samples = min(2000, n_nodes)
         sampled_indices = np.random.choice(n_nodes, n_samples, replace=False)
         sampled_serials = all_serials[sampled_indices]
 
-        # Split into train/test
         n_train = int(n_samples * self.train_ratio)
         shuffled_indices = np.random.permutation(n_samples)
 
@@ -135,13 +159,11 @@ class NodeParallelSearchGraphDataset(Dataset):
         else:
             selected_serials = sampled_serials[shuffled_indices[n_train:]]
 
-        # Prepare arguments for parallel processing
         process_args = [
             (csv_path, int(serial), self.k_hops, max_serial)
             for serial in selected_serials
         ]
 
-        # Process nodes in parallel
         with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
             with tqdm(total=len(selected_serials),
                      desc=f'Processing nodes from {Path(csv_path).name}',
@@ -161,14 +183,11 @@ class NodeParallelSearchGraphDataset(Dataset):
 
     def _process_files(self):
         all_data = []
-
-        # Process one CSV file at a time
         with tqdm(total=len(self.csv_paths), desc=f'Processing {self.split} set CSV files') as pbar:
             for csv_path in self.csv_paths:
                 graphs = self._process_csv_file(csv_path)
                 all_data.extend(graphs)
                 pbar.update(1)
-
         return all_data
 
     def len(self):
@@ -177,8 +196,19 @@ class NodeParallelSearchGraphDataset(Dataset):
     def get(self, idx):
         return self.data_list[idx]
 
-def create_node_parallel_dataloaders(csv_paths: List[str], k_hops: int = 2, batch_size: int = 32,
-                                   train_ratio: float = 0.8, num_workers: int = None, seed: Optional[int] = None):
+def create_and_save_datasets(
+    csv_paths: List[str],
+    output_dir: Path,
+    k_hops: int = 2,
+    train_ratio: float = 0.8,
+    num_workers: int = None,
+    seed: Optional[int] = None
+):
+    """Create and save the datasets"""
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create datasets
     train_dataset = NodeParallelSearchGraphDataset(
         csv_paths, k_hops, 'train', train_ratio, seed, num_workers
     )
@@ -186,36 +216,57 @@ def create_node_parallel_dataloaders(csv_paths: List[str], k_hops: int = 2, batc
         csv_paths, k_hops, 'test', train_ratio, seed, num_workers
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
+    # Save datasets
+    train_dataset.save(output_dir / 'train_dataset.pkl')
+    test_dataset.save(output_dir / 'test_dataset.pkl')
+
+    # Print dataset sizes
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Test dataset size: {len(test_dataset)}")
+    print(f"Saved datasets to {output_dir}")
+
+def load_and_create_dataloaders(
+    dataset_dir: Path,
+    batch_size: int = 32
+) -> Tuple[DataLoader, DataLoader]:
+    """Load datasets and create DataLoader objects"""
+    # Load datasets
+    train_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'train_dataset.pkl')
+    test_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'test_dataset.pkl')
+
+    # Create dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
 
 if __name__ == "__main__":
     root_dir = pathlib.Path(__file__).parent.parent
-    output_dir = root_dir / 'csv_output'
-    csv_paths = get_csv_paths(output_dir)
+    csv_dir = root_dir / 'csv_output_mini'
+    output_dir = root_dir / 'datasets'
+
+    csv_paths = list(csv_dir.glob('*.csv'))
     print(f"Found {len(csv_paths)} CSV files")
 
     # Use 80% of available CPU cores by default
     num_workers = max(1, int(mp.cpu_count() * 0.8))
     print(f"Using {num_workers} workers per CSV file")
 
-    train_loader, test_loader = create_node_parallel_dataloaders(
+    # Create and save datasets
+    create_and_save_datasets(
         csv_paths,
+        output_dir,
         k_hops=2,
-        batch_size=32,
         train_ratio=0.8,
         num_workers=num_workers,
         seed=42
     )
 
-    print(f"Train dataset size: {len(train_loader.dataset)}")
-    print(f"Test dataset size: {len(test_loader.dataset)}")
+    # Load datasets and create dataloaders
+    train_loader, test_loader = load_and_create_dataloaders(
+        output_dir,
+        batch_size=32
+    )
 
-    # Save dataloaders
-    with open(output_dir / 'train_loader_node_parallel.pkl', 'wb') as f:
-        pickle.dump(train_loader, f)
-    with open(output_dir / 'test_loader_node_parallel.pkl', 'wb') as f:
-        pickle.dump(test_loader, f)
-    print("Saved dataloaders to output directory")
+    print("Successfully created DataLoaders")
+    # You can now use train_loader and test_loader for training

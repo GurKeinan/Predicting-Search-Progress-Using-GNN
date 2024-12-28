@@ -1,0 +1,59 @@
+name: pytorch_geometric_env
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  # Python version
+  - python=3.10
+
+  # Core Scientific Stack
+  - numpy>=1.24.0
+  - pandas>=2.0.0
+  - scipy>=1.10.0
+  - statsmodels>=0.14.0
+
+  # Machine Learning
+  - scikit-learn>=1.2.0
+  - xgboost>=1.7.0
+  - lightgbm>=4.0.0
+
+  # Visualization
+  - matplotlib>=3.7.0
+  - seaborn>=0.12.0
+  - plotly>=5.13.0
+  - dash>=2.8.0
+
+  # Progress Bars
+  - tqdm>=4.65.0
+
+  # Jupyter Environment
+  - jupyterlab>=4.0.0
+  - notebook>=7.0.0
+  - ipywidgets>=8.0.0
+
+  # PyTorch Ecosystem for Apple Silicon
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::torchaudio
+
+  # Additional packages via pip
+  - pip
+  - pip:
+    - torch-geometric
+    - torch-scatter
+    - torch-sparse
+    - torch-cluster
+    - torch-spline-conv
+    - torchtext
+    - networkx>=3.0
+
+# Installation instructions for M1/M2 Macs:
+# 1. Create environment: conda env create -f environment.yml
+# 2. Activate environment: conda activate pytorch_geometric_env
+# 3. Verify installation:
+#    python -c "import torch; print(torch.backends.mps.is_available())"
+#    python -c "import torch_geometric; print(torch_geometric.__version__)"
+#
+# Note: This configuration is specifically for Apple Silicon (M1/M2) Macs
+# and uses the Metal Performance Shaders (MPS) backend for GPU acceleration

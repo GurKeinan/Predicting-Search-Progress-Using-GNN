@@ -5,3 +5,7 @@ myenv/
 
 requirements.txt
 requirements2.txt
+/.venv
+/csv_output
+/logs
+*.pkl
