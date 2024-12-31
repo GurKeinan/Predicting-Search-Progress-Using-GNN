@@ -12,8 +12,8 @@ import sys
 
 # Add the directory containing k_hop_without_future.py to the Python path
 root_dir = Path(__file__).resolve().parent.parent
-creating_trees_dir = root_dir / 'creating_trees_from_csv'
-sys.path.append(str(creating_trees_dir))
+creating_graphs_dir = root_dir / 'creating_graphs_from_csv'
+sys.path.append(str(creating_graphs_dir))
 
 # Now we can import from k_hop_without_future
 from k_hop_without_future import load_and_create_dataloaders
@@ -165,7 +165,7 @@ def save_model_and_results(model, output_dir, train_losses, val_losses,
 def main():
     # Setup paths
     root_dir = Path(__file__).parent.parent
-    dataset_dir = root_dir / 'dataloaders_datasets'
+    dataset_dir = root_dir / 'processed_datasets'
     output_dir = root_dir / 'model_output'
     output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -217,8 +217,8 @@ def create_and_save_datasets(
     )
 
     # Save datasets
-    train_dataset.save(output_dir / 'train_dataset.pkl')
-    test_dataset.save(output_dir / 'test_dataset.pkl')
+    train_dataset.save(output_dir / 'train_dataset_k_hop_without_future.pkl')
+    test_dataset.save(output_dir / 'test_dataset_k_hop_without_future.pkl')
 
     # Print dataset sizes
     print(f"Train dataset size: {len(train_dataset)}")
@@ -231,8 +231,8 @@ def load_and_create_dataloaders(
 ) -> Tuple[DataLoader, DataLoader]:
     """Load datasets and create DataLoader objects"""
     # Load datasets
-    train_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'train_dataset.pkl')
-    test_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'test_dataset.pkl')
+    train_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'train_dataset_k_hop_without_future.pkl')
+    test_dataset = NodeParallelSearchGraphDataset.load(dataset_dir / 'test_dataset_k_hop_without_future.pkl')
 
     # Create dataloaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -243,7 +243,9 @@ def load_and_create_dataloaders(
 if __name__ == "__main__":
     root_dir = pathlib.Path(__file__).parent.parent
     csv_dir = root_dir / 'csv_output_mini'
-    output_dir = root_dir / 'datasets'
+    output_dir = root_dir / 'processed_datasets'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     csv_paths = list(csv_dir.glob('*.csv'))
     print(f"Found {len(csv_paths)} CSV files")
