@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GraphNorm
-import numpy as np
-from tqdm import tqdm
 from pathlib import Path
 import json
 from datetime import datetime
+from tqdm import tqdm
+import numpy as np
+from torch_geometric.nn import GCNConv, GraphNorm
 import sys
 
 root_dir = Path(__file__).resolve().parent.parent
@@ -158,7 +158,6 @@ def save_experiment_info(params, metrics, output_dir: Path):
         'final_metrics': metrics,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
-
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / 'experiment_info.json', 'w') as f:
         json.dump(info, f, indent=4)
@@ -179,7 +178,7 @@ def main():
         'patience': 10,
         'seed': 42,
         'train_ratio': 0.8,
-        'samples_per_graph': 2000
+        'max_samples_per_graph': 2000
     }
 
     if params['seed'] is not None:
@@ -187,11 +186,10 @@ def main():
         torch.cuda.manual_seed_all(params['seed'])
         np.random.seed(params['seed'])
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # Check for existing dataloaders
-    dataloader_path = dataset_dir / 'full_clipped_graphs_without_future_multi_target.pt'
+    dataloader_path = dataset_dir / 'dataset_metadata.pt'
     if dataloader_path.exists():
         print("Loading existing dataloaders...")
         train_loader, test_loader = load_dataloaders(dataloader_path, params['batch_size'])
@@ -203,7 +201,7 @@ def main():
             output_dir=dataset_dir,
             batch_size=params['batch_size'],
             train_ratio=params['train_ratio'],
-            samples_per_graph=params['samples_per_graph'],
+            max_samples_per_graph=params['max_samples_per_graph'],
             seed=params['seed']
         )
 
