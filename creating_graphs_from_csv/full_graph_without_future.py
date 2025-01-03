@@ -3,21 +3,61 @@ from torch_geometric.data import Data, Dataset, DataLoader
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import pickle
 from typing import List, Optional, Dict
-from tqdm.auto import tqdm
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor
+import pickle
 
-MAX_SERIAL = 30000
+MAX_SERIAL = 20000
 
-def process_single_node(args):
-    csv_path, center_node_serial, max_serial = args
+class EfficientSearchGraphDataset(Dataset):
+    def __init__(self,
+                 csv_paths: List[str],
+                 split: str = 'train',
+                 train_ratio: float = 0.9,
+                 max_samples_per_graph: int = 2000,
+                 seed: Optional[int] = None):
+        super().__init__()
+        self.csv_paths = csv_paths
+        self.split = split
+        self.train_ratio = train_ratio
+        self.max_samples_per_graph = max_samples_per_graph
 
-    try:
+        if seed is not None:
+            np.random.seed(seed)
+
+        self.graph_metadata = self._process_csvs()
+
+    def _process_csvs(self) -> List[Dict]:
+        metadata = []
+
+        for csv_path in self.csv_paths:
+            df = pd.read_csv(csv_path)
+            max_serial = df['serial'].max()
+            valid_nodes = df[df['serial'] < MAX_SERIAL]['serial'].values
+
+            if len(valid_nodes) == 0:
+                continue
+
+            # Set number of samples as minimum between node count and max samples
+            total_samples = min(len(valid_nodes), self.max_samples_per_graph)
+
+            # Split samples between train and test
+            if self.split == 'train':
+                n_samples = int(total_samples * self.train_ratio)
+            else:
+                n_samples = total_samples - int(total_samples * self.train_ratio)
+
+            metadata.append({
+                'csv_path': csv_path,
+                'max_serial': max_serial,
+                'valid_nodes': valid_nodes,
+                'n_samples': n_samples
+            })
+
+        return metadata
+
+    def process_node(self, csv_path: str, center_node_serial: int, max_serial: int) -> Optional[Data]:
         df = pd.read_csv(csv_path)
 
-        # Filter nodes
         valid_nodes = df[
             (df['serial'] <= center_node_serial) &
             (df['serial'] <= MAX_SERIAL)
@@ -26,243 +66,154 @@ def process_single_node(args):
         if valid_nodes.empty:
             return None
 
-        # Create node mapping for the filtered subgraph
         node_mapping = {
             serial: idx for idx, serial
             in enumerate(valid_nodes['serial'].values)
         }
 
-        # Extract node features
         node_features = valid_nodes[[
             'f', 'h', 'g', 'BF', 'h0', 'H_min',
             'last_H_min_update', 'f_max'
         ]].values
 
-        # Create edges (bidirectional)
         edge_list = []
         for _, row in valid_nodes.iterrows():
             if pd.notna(row['father_serial']):
                 father_serial = int(row['father_serial'])
-                if father_serial in node_mapping:  # Check if father is in subgraph
-                    # Add both directions
+                if father_serial in node_mapping:
                     edge_list.extend([
                         [node_mapping[father_serial], node_mapping[row['serial']]],
                         [node_mapping[row['serial']], node_mapping[father_serial]]
                     ])
 
-        if not edge_list:  # If no edges, skip this graph
+        if not edge_list:
             return None
 
-        # Convert to PyTorch tensors
         x = torch.tensor(node_features, dtype=torch.float)
         edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
-
-        # Create target for all nodes
-        y = torch.tensor(
-            valid_nodes['serial'].values / max_serial,
-            dtype=torch.float
-        )
-
-        # Store the index of the center node in our subgraph
+        y = torch.tensor(valid_nodes['serial'].values / max_serial, dtype=torch.float)
         center_idx = node_mapping[center_node_serial]
+        original_serials = torch.tensor(valid_nodes['serial'].values, dtype=torch.long)
 
-        # Store the original serial numbers for later use
-        original_serials = torch.tensor(
-            valid_nodes['serial'].values,
-            dtype=torch.long
+        return Data(
+            x=x,
+            edge_index=edge_index,
+            y=y,
+            center_idx=center_idx,
+            original_serials=original_serials
         )
-
-        return {
-            'x': x,
-            'edge_index': edge_index,
-            'y': y,
-            'center_idx': center_idx,
-            'original_serials': original_serials
-        }
-
-    except Exception as e:
-        print(f"Error processing node {center_node_serial}: {str(e)}")
-        return None
-
-class NewSearchGraphDataset(Dataset):
-    def __init__(self,
-                 csv_paths: List[str],
-                 split: str = 'train',
-                 train_ratio: float = 0.8,
-                 seed: Optional[int] = None,
-                 num_workers: int = None):
-        super().__init__()
-        self.csv_paths = csv_paths
-        self.split = split
-        self.train_ratio = train_ratio
-        self.num_workers = num_workers or max(1, int(mp.cpu_count() * 0.8))
-
-        if seed is not None:
-            np.random.seed(seed)
-
-        self.data_list = self._process_files()
-
-    def _process_csv_file(self, csv_path: str) -> List[Data]:
-        graphs = []
-        df = pd.read_csv(csv_path)
-
-        # Get max serial for the whole graph
-        max_serial = df['serial'].max()
-
-        # First, filter out nodes with serial >= MAX_SERIAL
-        valid_nodes = df[df['serial'] < MAX_SERIAL]['serial'].values
-        n_nodes = len(valid_nodes)
-
-        if n_nodes == 0:
-            return []
-
-        # Determine desired sample sizes
-        total_desired_samples = 2000  # Total samples we want
-        if self.split == 'train':
-            desired_samples = int(total_desired_samples * self.train_ratio)
-        else:
-            desired_samples = total_desired_samples - int(total_desired_samples * self.train_ratio)
-
-        # Sample with replacement if we need more samples than available nodes
-        sampled_serials = np.random.choice(
-            valid_nodes,
-            size=desired_samples,
-            replace=(desired_samples > n_nodes)
-        )
-
-        selected_serials = sampled_serials  # No need to split since we already sampled the correct amount
-
-        process_args = [
-            (csv_path, int(serial), max_serial)
-            for serial in selected_serials
-        ]
-
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-            with tqdm(total=len(selected_serials),
-                     desc=f'Processing nodes from {Path(csv_path).name}',
-                     leave=False) as pbar:
-                for result in executor.map(process_single_node, process_args):
-                    if result is not None:
-                        graph = Data(
-                            x=result['x'],
-                            edge_index=result['edge_index'],
-                            y=result['y'],
-                            center_idx=result['center_idx'],
-                            original_serials=result['original_serials']
-                        )
-                        graphs.append(graph)
-                    pbar.update(1)
-
-        return graphs
-
-    def _process_files(self):
-        all_data = []
-        with tqdm(total=len(self.csv_paths),
-                 desc=f'Processing {self.split} set CSV files') as pbar:
-            for csv_path in self.csv_paths:
-                graphs = self._process_csv_file(csv_path)
-                all_data.extend(graphs)
-                pbar.update(1)
-        return all_data
-
-    def save(self, path: str):
-        """Save the dataset to disk"""
-        save_dict = {
-            'data_list': self.data_list,
-            'csv_paths': self.csv_paths,
-            'split': self.split,
-            'train_ratio': self.train_ratio
-        }
-        with open(path, 'wb') as f:
-            pickle.dump(save_dict, f)
-
-    @classmethod
-    def load(cls, path: str):
-        """Load a dataset from disk"""
-        with open(path, 'rb') as f:
-            save_dict = pickle.load(f)
-
-        dataset = cls(
-            csv_paths=save_dict['csv_paths'],
-            split=save_dict['split'],
-            train_ratio=save_dict['train_ratio']
-        )
-        dataset.data_list = save_dict['data_list']
-        return dataset
 
     def len(self):
-        return len(self.data_list)
+        return sum(meta['n_samples'] for meta in self.graph_metadata)
 
     def get(self, idx):
-        return self.data_list[idx]
+        current_count = 0
+        for meta in self.graph_metadata:
+            if idx < current_count + meta['n_samples']:
+                while True:
+                    center_node_serial = np.random.choice(meta['valid_nodes'])
+                    graph = self.process_node(
+                        meta['csv_path'],
+                        center_node_serial,
+                        meta['max_serial']
+                    )
+                    if graph is not None:
+                        return graph
 
-def create_and_save_datasets(
+                print(f"Warning: Could not create valid graph for {meta['csv_path']}")
+                return self.get((idx + 1) % self.len())
+
+            current_count += meta['n_samples']
+        raise IndexError("Index out of range")
+
+def create_and_save_dataloaders(
     csv_paths: List[str],
     output_dir: Path,
+    batch_size: int = 32,
     train_ratio: float = 0.8,
-    num_workers: int = None,
+    max_samples_per_graph: int = 2000,
     seed: Optional[int] = None
 ):
-    """Create and save the datasets"""
     output_dir.mkdir(parents=True, exist_ok=True)
+    save_path = output_dir / 'full_clipped_graphs_without_future_multi_target.pt'
 
-    train_dataset = NewSearchGraphDataset(
-        csv_paths, 'train', train_ratio, seed, num_workers
+    metadata = {
+        'csv_paths': csv_paths,
+        'batch_size': batch_size,
+        'train_ratio': train_ratio,
+        'max_samples_per_graph': max_samples_per_graph,
+        'seed': seed
+    }
+    torch.save(metadata, save_path)
+
+    train_dataset = EfficientSearchGraphDataset(
+        csv_paths=csv_paths,
+        split='train',
+        train_ratio=train_ratio,
+        max_samples_per_graph=max_samples_per_graph,
+        seed=seed
     )
-    test_dataset = NewSearchGraphDataset(
-        csv_paths, 'test', train_ratio, seed, num_workers
+
+    test_dataset = EfficientSearchGraphDataset(
+        csv_paths=csv_paths,
+        split='test',
+        train_ratio=train_ratio,
+        max_samples_per_graph=max_samples_per_graph,
+        seed=seed
     )
-
-    train_dataset.save(output_dir / 'train_dataset_full_graph_without_future.pkl')
-    test_dataset.save(output_dir / 'test_dataset_full_graph_without_future.pkl')
-
-    print(f"Train dataset size: {len(train_dataset)}")
-    print(f"Test dataset size: {len(test_dataset)}")
-    print(f"Saved datasets to {output_dir}")
-
-def load_and_create_dataloaders(
-    dataset_dir: Path,
-    batch_size: int = 32
-):
-    """Load datasets and create DataLoader objects"""
-    train_dataset = NewSearchGraphDataset.load(dataset_dir / 'train_dataset_full_graph_without_future.pkl')
-    test_dataset = NewSearchGraphDataset.load(dataset_dir / 'test_dataset_full_graph_without_future.pkl')
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
 
-from pathlib import Path
+def load_dataloaders(dataset_path: Path, batch_size: Optional[int] = None):
+    metadata = torch.load(dataset_path)
+    batch_size = batch_size or metadata['batch_size']
 
-def main():
-    # Set up paths
-    root_dir = Path(__file__).resolve().parent.parent  # Go up one directory
-    csv_dir = root_dir / 'csv_output_mini'  # Directory containing CSV files
-    output_dir = root_dir / 'processed_datasets'  # Directory to save processed datasets
-
-    # Create output directory if it doesn't exist
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Get all CSV files from the directory
-    csv_paths = list(csv_dir.glob('*.csv'))
-    print(f"Found {len(csv_paths)} CSV files in {csv_dir}")
-
-    # Parameters
-    train_ratio = 0.8
-    seed = 42
-    num_workers = None  # Will use 80% of CPU cores by default
-
-    # Create and save datasets
-    create_and_save_datasets(
-        csv_paths=csv_paths,
-        output_dir=output_dir,
-        train_ratio=train_ratio,
-        num_workers=num_workers,
-        seed=seed
+    train_dataset = EfficientSearchGraphDataset(
+        csv_paths=metadata['csv_paths'],
+        split='train',
+        train_ratio=metadata['train_ratio'],
+        max_samples_per_graph=metadata['max_samples_per_graph'],
+        seed=metadata['seed']
     )
 
-    print("Dataset creation completed!")
+    test_dataset = EfficientSearchGraphDataset(
+        csv_paths=metadata['csv_paths'],
+        split='test',
+        train_ratio=metadata['train_ratio'],
+        max_samples_per_graph=metadata['max_samples_per_graph'],
+        seed=metadata['seed']
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
+def main():
+    root_dir = Path(__file__).resolve().parent.parent
+    csv_dir = root_dir / 'csv_output'
+    dataset_dir = root_dir / 'processed_datasets'
+
+    csv_paths = list(csv_dir.glob('*.csv'))
+    print(f"Found {len(csv_paths)} CSV files")
+
+    params = {
+        'batch_size': 32,
+        'train_ratio': 0.8,
+        'max_samples_per_graph': 20,
+        'seed': 42
+    }
+
+    print("Creating and saving dataloaders...")
+    create_and_save_dataloaders(
+        csv_paths=csv_paths,
+        output_dir=dataset_dir,
+        **params
+    )
+    print(f"Saved dataloaders to {dataset_dir}")
 
 if __name__ == '__main__':
     main()
